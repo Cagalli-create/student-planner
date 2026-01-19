@@ -1,0 +1,1675 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Student Planner - Complete Edition</title>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/lucide@latest/dist/umd/lucide.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+const { useState, useEffect } = React;
+
+// ========================================
+// FIREBASE CONFIGURATION
+// ========================================
+// PASTE YOUR FIREBASE CONFIG HERE
+// Get it from: Firebase Console > Project Settings > Your apps > Web app
+
+const firebaseConfig = {
+  apiKey: "YOUR_API_KEY_HERE",
+  authDomain: "YOUR_PROJECT.firebaseapp.com",
+  databaseURL: "https://YOUR_PROJECT.firebaseio.com",
+  projectId: "YOUR_PROJECT",
+  storageBucket: "YOUR_PROJECT.appspot.com",
+  messagingSenderId: "YOUR_SENDER_ID",
+  appId: "YOUR_APP_ID"
+};
+
+// Initialize Firebase
+try {
+  firebase.initializeApp(firebaseConfig);
+  console.log("✅ Firebase initialized successfully");
+} catch (error) {
+  console.error("❌ Firebase initialization failed:", error);
+}
+
+// ========================================
+
+
+
+const StudentPlanner = () => {
+  const [currentPage, setCurrentPage] = useState('monthly');
+  const [currentDate, setCurrentDate] = useState(new Date());
+  const [selectedDay, setSelectedDay] = useState(null);
+  
+  const [events, setEvents] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [tags, setTags] = useState([
+    { id: 'tag-1', name: 'Online Tutor', color: '#3B82F6' },
+    { id: 'tag-2', name: 'University Classes', color: '#10B981' },
+    { id: 'tag-3', name: 'Personal', color: '#F59E0B' }
+  ]);
+  const [students, setStudents] = useState([]);
+  const [courses, setCourses] = useState([]);
+  const [todos, setTodos] = useState([]);
+  const [plItems, setPlItems] = useState([]);
+  const [contacts, setContacts] = useState([]);
+  
+  const [showEventForm, setShowEventForm] = useState(false);
+  const [editingEvent, setEditingEvent] = useState(null);
+  const [weekOffset, setWeekOffset] = useState(0);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedStudent, setSelectedStudent] = useState(null);
+  const [selectedCourse, setSelectedCourse] = useState(null);
+
+  useEffect(() => { loadData(); }, []);
+  useEffect(() => { saveData(); }, [events, categories, tags, students, courses, todos, plItems, contacts]);
+
+  const loadData = () => {
+    try {
+      const keys = ['events', 'categories', 'tags', 'students', 'courses', 'todos', 'plItems', 'contacts'];
+      for (const key of keys) {
+        try {
+          const result = localStorage.getItem(`planner_${key}_v3`);
+          if (result) {
+            const data = JSON.parse(result.value);
+            switch(key) {
+              case 'events': setEvents(data); break;
+              case 'categories': setCategories(data); break;
+              case 'tags': setTags(data); break;
+              case 'students': setStudents(data); break;
+              case 'courses': setCourses(data); break;
+              case 'todos': setTodos(data); break;
+              case 'plItems': setPlItems(data); break;
+              case 'contacts': setContacts(data); break;
+            }
+          }
+        } catch {}
+      }
+    } catch {}
+  };
+
+  const saveData = () => {
+    try {
+      localStorage.setItem('planner_events_v3', JSON.stringify(events));
+      localStorage.setItem('planner_categories_v3', JSON.stringify(categories));
+      localStorage.setItem('planner_tags_v3', JSON.stringify(tags));
+      localStorage.setItem('planner_students_v3', JSON.stringify(students));
+      localStorage.setItem('planner_courses_v3', JSON.stringify(courses));
+      localStorage.setItem('planner_todos_v3', JSON.stringify(todos));
+      localStorage.setItem('planner_plItems_v3', JSON.stringify(plItems));
+      localStorage.setItem('planner_contacts_v3', JSON.stringify(contacts));
+    } catch {}
+  };
+
+  const formatDate = (year, month, day) => {
+    const m = String(month + 1).padStart(2, '0');
+    const d = String(day).padStart(2, '0');
+    return `${year}-${m}-${d}`;
+  };
+
+  const getDaysInMonth = (date) => {
+    const year = date.getFullYear();
+    const month = date.getMonth();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const firstDayOfWeek = new Date(year, month, 1).getDay();
+    return { daysInMonth, firstDayOfWeek, year, month };
+  };
+
+  const getEventsForDay = (year, month, day) => {
+    const dateStr = formatDate(year, month, day);
+    return events.filter(e => e.date === dateStr).sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+  };
+
+  const getWeekDates = () => {
+    const today = new Date();
+    today.setDate(today.getDate() + (weekOffset * 7));
+    const sunday = new Date(today);
+    sunday.setDate(today.getDate() - today.getDay());
+    
+    const dates = [];
+    for (let i = 0; i < 7; i++) {
+      const date = new Date(sunday);
+      date.setDate(sunday.getDate() + i);
+      dates.push(date);
+    }
+    return dates;
+  };
+
+  const toggleEventComplete = (id) => {
+    setEvents(events.map(e => e.id === id ? { ...e, completed: !e.completed } : e));
+  };
+
+  const deleteEvent = (id) => {
+    if (window.confirm('Delete this event?')) {
+      setEvents(events.filter(e => e.id !== id));
+    }
+  };
+
+  const addCategory = (name, tagId) => {
+    const newCat = { id: `cat-${Date.now()}`, name, tagId };
+    setCategories([...categories, newCat]);
+    return newCat.id;
+  };
+
+  const deleteCategory = (id) => {
+    if (window.confirm('このCategoriesをDelete?')) {
+      setCategories(categories.filter(c => c.id !== id));
+    }
+  };
+
+  const addTag = (name, color) => {
+    const newTag = { id: `tag-${Date.now()}`, name, color };
+    setTags([...tags, newTag]);
+    return newTag;
+  };
+
+  const deleteTag = (id) => {
+    if (window.confirm('このTagをDelete?関連するCategoriesも削除されます。')) {
+      setTags(tags.filter(t => t.id !== id));
+      setCategories(categories.filter(c => c.tagId !== id));
+    }
+  };
+
+  const toggleTodoComplete = (id) => {
+    setTodos(todos.map(t => t.id === id ? { ...t, completed: !t.completed } : t));
+  };
+
+  const deleteTodo = (id) => {
+    if (window.confirm('Delete?')) {
+      setTodos(todos.filter(t => t.id !== id));
+    }
+  };
+
+  // Event Form Component
+  const EventForm = ({ onClose, selectedDay }) => {
+    const [eventName, setEventName] = useState(editingEvent?.name || '');
+    const [eventTime, setEventTime] = useState(editingEvent?.time || '');
+    const [eventContent, setEventContent] = useState(editingEvent?.content || '');
+    const [eventCategory, setEventCategory] = useState(editingEvent?.category || '');
+    const [weeklyRepeat, setWeeklyRepeat] = useState(editingEvent?.weeklyRepeat || false);
+    const [highlight, setHighlight] = useState(editingEvent?.highlight || false);
+
+    const { year, month } = getDaysInMonth(currentDate);
+
+    const handleAddEvent = () => {
+      if (!eventName.trim()) {
+        alert('Please enter event name');
+        return;
+      }
+
+      const eventData = {
+        id: editingEvent?.id || `event-${Date.now()}`,
+        name: eventName,
+        time: eventTime,
+        content: eventContent,
+        category: eventCategory,
+        date: formatDate(year, month, selectedDay),
+        completed: editingEvent?.completed || false,
+        weeklyRepeat,
+        highlight
+      };
+
+      if (editingEvent) {
+        setEvents(events.map(e => e.id === editingEvent.id ? eventData : e));
+      } else {
+        const newEvents = [eventData];
+        
+        if (weeklyRepeat) {
+          for (let i = 1; i <= 12; i++) {
+            const date = new Date(year, month, selectedDay);
+            date.setDate(date.getDate() + (7 * i));
+            newEvents.push({
+              ...eventData,
+              id: `event-${Date.now()}-${i}`,
+              date: formatDate(date.getFullYear(), date.getMonth(), date.getDate())
+            });
+          }
+        }
+        
+        setEvents([...events, ...newEvents]);
+      }
+
+      onClose();
+    };
+
+    return (
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl">
+          <div className="flex justify-between items-center mb-6">
+            <h3 className="text-2xl font-bold text-gray-800">
+              {editingEvent ? 'Edit Event' : 'Add Event'}
+            </h3>
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+              <i data-lucide="x" style={{ width: 24, height: 24 }}></i>
+            </button>
+          </div>
+
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">Event Name *</label>
+              <input
+                type="text"
+                value={eventName}
+                onChange={(e) => setEventName(e.target.value)}
+                className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none"
+                placeholder="Enter event name"
+                autoFocus
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">Time</label>
+              <input
+                type="time"
+                value={eventTime}
+                onChange={(e) => setEventTime(e.target.value)}
+                className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">Description</label>
+              <textarea
+                value={eventContent}
+                onChange={(e) => setEventContent(e.target.value)}
+                className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none resize-none"
+                rows="3"
+                placeholder="Enter details"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">Categories</label>
+              <select
+                value={eventCategory}
+                onChange={(e) => setEventCategory(e.target.value)}
+                className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none"
+              >
+                <option value="">Please select</option>
+                {categories.map(cat => (
+                  <option key={cat.id} value={cat.id}>{cat.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="bg-blue-50 p-3 rounded-lg text-sm text-gray-700">
+              <strong>Date:</strong> {year}{month + 1}/{selectedDay}
+            </div>
+
+            <div className="space-y-3 bg-gray-50 p-4 rounded-xl">
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={weeklyRepeat}
+                  onChange={(e) => setWeeklyRepeat(e.target.checked)}
+                  className="w-5 h-5 rounded"
+                />
+                <span className="text-sm font-medium">Repeat Weekly</span>
+              </label>
+
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={highlight}
+                  onChange={(e) => setHighlight(e.target.checked)}
+                  className="w-5 h-5 rounded"
+                />
+                <span className="text-sm font-medium">Highlight</span>
+              </label>
+            </div>
+          </div>
+
+          <div className="flex gap-3 mt-6">
+            <button
+              onClick={handleAddEvent}
+              className="flex-1 bg-gradient-to-r from-blue-500 to-blue-600 text-white py-3 rounded-xl font-semibold hover:from-blue-600 hover:to-blue-700 shadow-lg"
+            >
+              {editingEvent ? 'Update' : 'Add'}
+            </button>
+            <button
+              onClick={onClose}
+              className="px-6 py-3 border-2 border-gray-300 rounded-xl font-semibold hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // Monthly Calendar
+  const MonthlyCalendar = () => {
+    const { daysInMonth, firstDayOfWeek, year, month } = getDaysInMonth(currentDate);
+    const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', '1January', '1February'];
+
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <h2 className="text-3xl font-bold text-gray-800">{year} {monthNames[month]}</h2>
+          <div className="flex gap-2">
+            <button onClick={() => setCurrentDate(new Date(year, month - 1, 1))} className="p-3 hover:bg-gray-100 rounded-xl">
+              <i data-lucide="chevron-left" style={{ width: 24, height: 24 }}></i>
+            </button>
+            <button onClick={() => setCurrentDate(new Date(year, month + 1, 1))} className="p-3 hover:bg-gray-100 rounded-xl">
+              <i data-lucide="chevron-right" style={{ width: 24, height: 24 }}></i>
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-7 gap-3">
+          {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
+            <div key={day} className="text-center font-bold text-gray-600 py-3">{day}</div>
+          ))}
+
+          {[...Array(firstDayOfWeek)].map((_, i) => (
+            <div key={`empty-${i}`} className="bg-gray-50 rounded-2xl min-h-[140px]" />
+          ))}
+
+          {[...Array(daysInMonth)].map((_, i) => {
+            const day = i + 1;
+            const dayEvents = getEventsForDay(year, month, day);
+            const today = new Date();
+            const isToday = today.getFullYear() === year && today.getMonth() === month && today.getDate() === day;
+
+            return (
+              <div
+                key={day}
+                className={`rounded-2xl p-3 min-h-[140px] ${isToday ? 'bg-gradient-to-br from-blue-500 to-blue-600 text-white shadow-lg' : 'bg-white border-2 border-gray-100'}`}
+              >
+                <div className="flex justify-between items-start mb-2">
+                  <div className={`font-bold ${isToday ? 'text-white' : 'text-gray-700'}`}>{day}</div>
+                  <button
+                    onClick={() => {
+                      setSelectedDay(day);
+                      setEditingEvent(null);
+                      setShowEventForm(true);
+                    }}
+                    className={`p-1 rounded-lg ${isToday ? 'bg-white/20 hover:bg-white/30' : 'bg-blue-50 hover:bg-blue-100'}`}
+                  >
+                    <i data-lucide="plus" className={isToday ? 'text-white' : 'text-blue-600'} style={{ width: 16, height: 16 }}></i>
+                  </button>
+                </div>
+
+                <div className="space-y-1.5">
+                  {dayEvents.map(event => (
+                    <div
+                      key={event.id}
+                      className={`text-xs p-2 rounded-lg ${event.completed ? 'opacity-50' : ''} ${event.highlight ? 'bg-yellow-300 font-semibold' : isToday ? 'bg-white/20' : 'bg-blue-50'}`}
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="checkbox"
+                          checked={event.completed}
+                          onChange={() => toggleEventComplete(event.id)}
+                          className="cursor-pointer"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className={event.completed ? 'line-through' : ''}>
+                            {event.time && <span className="font-semibold">{event.time}</span>} {event.name}
+                          </div>
+                        </div>
+                        <button 
+                          onClick={() => deleteEvent(event.id)} 
+                          className="text-gray-600 hover:text-red-600 font-bold"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {showEventForm && selectedDay && (
+          <EventForm
+            onClose={() => {
+              setShowEventForm(false);
+              setEditingEvent(null);
+            }}
+            selectedDay={selectedDay}
+          />
+        )}
+      </div>
+    );
+  };
+
+  // Weekly Calendar
+  const WeeklyCalendar = () => {
+    const weekDates = getWeekDates();
+    const firstDate = weekDates[0];
+    const lastDate = weekDates[6];
+
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <h2 className="text-3xl font-bold text-gray-800">Weekly Calendar</h2>
+          <div className="flex items-center gap-3">
+            <button 
+              onClick={() => setWeekOffset(weekOffset - 1)} 
+              className="p-3 hover:bg-gray-100 rounded-xl transition"
+            >
+              <i data-lucide="chevron-left" style={{ width: 24, height: 24 }}></i>
+            </button>
+            <div className="px-6 py-2 bg-blue-50 rounded-xl">
+              <span className="font-semibold text-blue-700">
+                {firstDate.getMonth() + 1}/{firstDate.getDate()} - {lastDate.getMonth() + 1}/{lastDate.getDate()}
+              </span>
+            </div>
+            <button 
+              onClick={() => setWeekOffset(0)} 
+              className="px-5 py-2.5 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-xl font-semibold transition"
+            >
+              This Week
+            </button>
+            <button 
+              onClick={() => setWeekOffset(weekOffset + 1)} 
+              className="p-3 hover:bg-gray-100 rounded-xl transition"
+            >
+              <i data-lucide="chevron-right" style={{ width: 24, height: 24 }}></i>
+            </button>
+          </div>
+        </div>
+
+        {categories.length === 0 ? (
+          <div className="bg-yellow-50 border-2 border-yellow-200 rounded-2xl p-8 text-center">
+            <p className="text-lg text-gray-700 mb-2">Categoriesがまだ登録されていません</p>
+            <p className="text-sm text-gray-600">「CategoriesSettings」ページからCategoriesをAddしてください</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto bg-white rounded-2xl shadow-lg border-2 border-gray-100">
+            <table className="w-full">
+              <thead>
+                <tr className="bg-gradient-to-r from-gray-50 to-gray-100">
+                  <th className="p-4 text-left font-bold text-gray-700 border-b-2 border-gray-200 min-w-[180px]">Categories</th>
+                  {weekDates.map(date => (
+                    <th key={date.toISOString()} className="p-4 border-b-2 border-gray-200 min-w-[140px]">
+                      <div className="font-bold text-gray-700">{['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][date.getDay()]}</div>
+                      <div className="text-sm text-gray-500 font-normal">{date.getMonth() + 1}/{date.getDate()}</div>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {categories.map(category => {
+                  const tag = tags.find(t => t.id === category.tagId);
+                  return (
+                    <tr key={category.id} className="hover:bg-gray-50">
+                      <td className="p-4 font-semibold border-b border-gray-100" style={{ backgroundColor: tag?.color + '15' }}>
+                        <div className="flex items-center gap-2">
+                          <div className="w-3 h-3 rounded-full" style={{ backgroundColor: tag?.color }} />
+                          {category.name}
+                        </div>
+                      </td>
+                      {weekDates.map(date => {
+                        const dateStr = formatDate(date.getFullYear(), date.getMonth(), date.getDate());
+                        const cellEvents = events.filter(e => e.category === category.id && e.date === dateStr);
+                        return (
+                          <td key={date.toISOString()} className="p-3 border-b border-gray-100">
+                            <div className="space-y-1.5">
+                              {cellEvents.map(event => (
+                                <div key={event.id} className={`text-xs p-2 rounded-lg ${event.completed ? 'opacity-50' : ''} ${event.highlight ? 'bg-yellow-200' : 'bg-white border border-gray-200'}`}>
+                                  <div className="flex items-center gap-1.5">
+                                    <input
+                                      type="checkbox"
+                                      checked={event.completed}
+                                      onChange={() => toggleEventComplete(event.id)}
+                                      className="cursor-pointer"
+                                    />
+                                    <div className="flex-1 min-w-0">
+                                      <div className={event.completed ? 'line-through' : ''}>
+                                        {event.time && <span className="font-semibold">{event.time}</span>} {event.name}
+                                      </div>
+                                    </div>
+                                    <button 
+                                      onClick={() => deleteEvent(event.id)} 
+                                      className="text-gray-600 hover:text-red-600 font-bold"
+                                    >
+                                      ×
+                                    </button>
+                                  </div>
+                                </div>
+                              ))}
+                              <button
+                                onClick={() => {
+                                  setCurrentDate(date);
+                                  setSelectedDay(date.getDate());
+                                  setEditingEvent(null);
+                                  setShowEventForm(true);
+                                }}
+                                className="w-full text-xs p-1.5 border-2 border-dashed border-gray-300 rounded-lg hover:border-blue-400 hover:bg-blue-50 text-gray-500 hover:text-blue-600"
+                              >
+                                + Add
+                              </button>
+                            </div>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {showEventForm && selectedDay && (
+          <EventForm
+            onClose={() => {
+              setShowEventForm(false);
+              setEditingEvent(null);
+            }}
+            selectedDay={selectedDay}
+          />
+        )}
+      </div>
+    );
+  };
+
+  // Online Tutor Page
+  const OnlineTutorPage = () => {
+    useEffect(() => {
+      setTimeout(() => { if (window.lucide) window.lucide.createIcons(); }, 50);
+    }, [students, showAddStudent, selectedStudent]);
+
+    const [showAddStudent, setShowAddStudent] = useState(false);
+    const [studentName, setStudentName] = useState('');
+    const [studentInfo, setStudentInfo] = useState('');
+    const [recordContent, setRecordContent] = useState('');
+
+    const addStudent = () => {
+      if (!studentName.trim()) {
+        alert('student名を入力してください');
+        return;
+      }
+      const newStudent = { 
+        id: `student-${Date.now()}`, 
+        name: studentName, 
+        info: studentInfo,
+        records: [] 
+      };
+      setStudents([...students, newStudent]);
+      
+      const tutorTag = tags.find(t => t.name === 'Online Tutor');
+      if (tutorTag) {
+        addCategory(studentName, tutorTag.id);
+      }
+      
+      setStudentName('');
+      setStudentInfo('');
+      setShowAddStudent(false);
+    };
+
+    const addRecord = (studentId) => {
+      if (!recordContent.trim()) {
+        alert('記録Descriptionを入力してください');
+        return;
+      }
+      setStudents(students.map(s => 
+        s.id === studentId 
+          ? { ...s, records: [{ id: `rec-${Date.now()}`, content: recordContent, date: new Date().toISOString() }, ...s.records] }
+          : s
+      ));
+      setRecordContent('');
+      setSelectedStudent(null);
+    };
+
+    const deleteStudent = (id) => {
+      if (window.confirm('このstudentをDelete?')) {
+        setStudents(students.filter(s => s.id !== id));
+      }
+    };
+
+    const filteredStudents = students.filter(s => 
+      s.name.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <h2 className="text-3xl font-bold text-gray-800">Online Tutoring</h2>
+          <button
+            onClick={() => setShowAddStudent(true)}
+            className="flex items-center gap-2 px-5 py-3 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700"
+          >
+            <i data-lucide="plus" style={{ width: 20, height: 20 }}></i> studentをAdd
+          </button>
+        </div>
+
+        <div className="relative">
+          <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search students..."
+            className="w-full pl-12 pr-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none"
+          />
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {filteredStudents.map(student => (
+            <div key={student.id} className="bg-white rounded-2xl shadow-lg border-2 border-gray-100 p-6">
+              <div className="flex justify-between items-start mb-4">
+                <div>
+                  <h3 className="text-xl font-bold text-gray-800">{student.name}</h3>
+                  {student.info && <p className="text-sm text-gray-600 mt-1">{student.info}</p>}
+                </div>
+                <button onClick={() => deleteStudent(student.id)} className="text-red-600 hover:text-red-700">
+                  <i data-lucide="trash-2" style={{ width: 18, height: 18 }}></i>
+                </button>
+              </div>
+              
+              <div className="mb-3">
+                <div className="text-sm font-semibold text-gray-600 mb-2">Records: {student.records.length}</div>
+              </div>
+
+              <button
+                onClick={() => setSelectedStudent(student.id)}
+                className="w-full py-2 bg-blue-50 text-blue-600 rounded-xl font-semibold hover:bg-blue-100"
+              >
+                記録をAdd
+              </button>
+
+              {student.records.length > 0 && (
+                <div className="mt-4 space-y-2 max-h-40 overflow-y-auto">
+                  {student.records.slice(0, 3).map(record => (
+                    <div key={record.id} className="text-xs p-2 bg-gray-50 rounded-lg">
+                      <div className="text-gray-500 mb-1">{new Date(record.date).toLocaleDateString('ja-JP')}</div>
+                      <div className="text-gray-700">{record.content}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {showAddStudent && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl p-6 max-w-md w-full">
+              <h3 className="text-2xl font-bold text-gray-800 mb-6">studentをAdd</h3>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">student名 *</label>
+                  <input
+                    type="text"
+                    value={studentName}
+                    onChange={(e) => setStudentName(e.target.value)}
+                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none"
+                    placeholder="student名を入力"
+                    autoFocus
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Notes</label>
+                  <textarea
+                    value={studentInfo}
+                    onChange={(e) => setStudentInfo(e.target.value)}
+                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none resize-none"
+                    rows="3"
+                    placeholder="学、科目など"
+                  />
+                </div>
+              </div>
+              <div className="flex gap-3 mt-6">
+                <button onClick={addStudent} className="flex-1 bg-blue-600 text-white py-3 rounded-xl font-semibold hover:bg-blue-700">
+                  Add
+                </button>
+                <button onClick={() => setShowAddStudent(false)} className="px-6 py-3 border-2 border-gray-300 rounded-xl font-semibold hover:bg-gray-50">
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {selectedStudent && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl p-6 max-w-md w-full">
+              <h3 className="text-2xl font-bold text-gray-800 mb-6">記録をAdd</h3>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">記録Description *</label>
+                <textarea
+                  value={recordContent}
+                  onChange={(e) => setRecordContent(e.target.value)}
+                  className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none resize-none"
+                  rows="5"
+                  placeholder="今の指導Description、宿題など"
+                  autoFocus
+                />
+              </div>
+              <div className="flex gap-3 mt-6">
+                <button onClick={() => addRecord(selectedStudent)} className="flex-1 bg-blue-600 text-white py-3 rounded-xl font-semibold hover:bg-blue-700">
+                  Add
+                </button>
+                <button onClick={() => {
+                  setSelectedStudent(null);
+                  setRecordContent('');
+                }} className="px-6 py-3 border-2 border-gray-300 rounded-xl font-semibold hover:bg-gray-50">
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // University Classes Page
+  const UniversityClassesPage = () => {
+    useEffect(() => {
+      setTimeout(() => { if (window.lucide) window.lucide.createIcons(); }, 50);
+    }, [courses, showAddCourse, selectedCourse]);
+
+    const [showAddCourse, setShowAddCourse] = useState(false);
+    const [courseName, setCourseName] = useState('');
+    const [courseInfo, setCourseInfo] = useState('');
+    const [assignmentName, setAssignmentName] = useState('');
+    const [assignmentDeadline, setAssignmentDeadline] = useState('');
+    const [assignmentContent, setAssignmentContent] = useState('');
+
+    const addCourse = () => {
+      if (!courseName.trim()) {
+        alert('Class Nameを入力してください');
+        return;
+      }
+      const newCourse = { 
+        id: `course-${Date.now()}`, 
+        name: courseName, 
+        info: courseInfo,
+        assignments: [] 
+      };
+      setCourses([...courses, newCourse]);
+      
+      const classTag = tags.find(t => t.name === 'University Classes');
+      if (classTag) {
+        addCategory(courseName, classTag.id);
+      }
+      
+      setCourseName('');
+      setCourseInfo('');
+      setShowAddCourse(false);
+    };
+
+    const addAssignment = (courseId) => {
+      if (!assignmentName.trim() || !assignmentDeadline) {
+        alert('Assignment NameとDeadlineを入力してください');
+        return;
+      }
+
+      const assignment = { 
+        id: `assign-${Date.now()}`, 
+        name: assignmentName,
+        deadline: assignmentDeadline,
+        content: assignmentContent,
+        completed: false
+      };
+
+      setCourses(courses.map(c => 
+        c.id === courseId ? { ...c, assignments: [...c.assignments, assignment] } : c
+      ));
+
+      const course = courses.find(c => c.id === courseId);
+      if (course) {
+        const category = categories.find(cat => cat.name === course.name);
+        const eventData = {
+          id: `event-${Date.now()}`,
+          name: assignmentName,
+          date: assignmentDeadline,
+          time: '23:59',
+          content: assignmentContent,
+          category: category?.id || '',
+          highlight: true,
+          completed: false,
+          weeklyRepeat: false
+        };
+        setEvents([...events, eventData]);
+      }
+
+      setAssignmentName('');
+      setAssignmentDeadline('');
+      setAssignmentContent('');
+      setSelectedCourse(null);
+    };
+
+    const toggleAssignmentComplete = (courseId, assignmentId) => {
+      setCourses(courses.map(c => 
+        c.id === courseId 
+          ? { ...c, assignments: c.assignments.map(a => a.id === assignmentId ? { ...a, completed: !a.completed } : a) }
+          : c
+      ));
+    };
+
+    const deleteCourse = (id) => {
+      if (window.confirm('Delete this class?')) {
+        setCourses(courses.filter(c => c.id !== id));
+      }
+    };
+
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <h2 className="text-3xl font-bold text-gray-800">University Classes</h2>
+          <button
+            onClick={() => setShowAddCourse(true)}
+            className="flex items-center gap-2 px-5 py-3 bg-green-600 text-white rounded-xl font-semibold hover:bg-green-700"
+          >
+            <i data-lucide="plus" style={{ width: 20, height: 20 }}></i> 授業をAdd
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {courses.map(course => (
+            <div key={course.id} className="bg-white rounded-2xl shadow-lg border-2 border-gray-100 p-6">
+              <div className="flex justify-between items-start mb-4">
+                <div>
+                  <h3 className="text-xl font-bold text-gray-800">{course.name}</h3>
+                  {course.info && <p className="text-sm text-gray-600 mt-1">{course.info}</p>}
+                </div>
+                <button onClick={() => deleteCourse(course.id)} className="text-red-600 hover:text-red-700">
+                  <i data-lucide="trash-2" style={{ width: 18, height: 18 }}></i>
+                </button>
+              </div>
+
+              <button
+                onClick={() => setSelectedCourse(course.id)}
+                className="w-full py-2 bg-green-50 text-green-600 rounded-xl font-semibold hover:bg-green-100 mb-4"
+              >
+                課題をAdd
+              </button>
+
+              <div className="space-y-2">
+                <div className="text-sm font-semibold text-gray-600 mb-2">Assignments ({course.assignments.length})</div>
+                {course.assignments.map(assignment => (
+                  <div key={assignment.id} className={`p-3 rounded-lg border-2 ${assignment.completed ? 'bg-gray-50 opacity-50' : 'bg-white border-gray-200'}`}>
+                    <div className="flex items-start gap-2">
+                      <input
+                        type="checkbox"
+                        checked={assignment.completed}
+                        onChange={() => toggleAssignmentComplete(course.id, assignment.id)}
+                        className="mt-1 cursor-pointer"
+                      />
+                      <div className="flex-1">
+                        <div className={`font-semibold ${assignment.completed ? 'line-through text-gray-500' : 'text-gray-800'}`}>
+                          {assignment.name}
+                        </div>
+                        <div className="text-sm text-gray-600">Deadline: {assignment.deadline}</div>
+                        {assignment.content && <div className="text-xs text-gray-500 mt-1">{assignment.content}</div>}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {showAddCourse && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl p-6 max-w-md w-full">
+              <h3 className="text-2xl font-bold text-gray-800 mb-6">授業をAdd</h3>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Class Name *</label>
+                  <input
+                    type="text"
+                    value={courseName}
+                    onChange={(e) => setCourseName(e.target.value)}
+                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none"
+                    placeholder="e.g., Programming Basics"
+                    autoFocus
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Notes</label>
+                  <textarea
+                    value={courseInfo}
+                    onChange={(e) => setCourseInfo(e.target.value)}
+                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none resize-none"
+                    rows="2"
+                    placeholder="担当教授、Time割など"
+                  />
+                </div>
+              </div>
+              <div className="flex gap-3 mt-6">
+                <button onClick={addCourse} className="flex-1 bg-green-600 text-white py-3 rounded-xl font-semibold hover:bg-green-700">
+                  Add
+                </button>
+                <button onClick={() => setShowAddCourse(false)} className="px-6 py-3 border-2 border-gray-300 rounded-xl font-semibold hover:bg-gray-50">
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {selectedCourse && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl p-6 max-w-md w-full">
+              <h3 className="text-2xl font-bold text-gray-800 mb-6">課題をAdd</h3>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Assignment Name *</label>
+                  <input
+                    type="text"
+                    value={assignmentName}
+                    onChange={(e) => setAssignmentName(e.target.value)}
+                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none"
+                    placeholder="e.g., Submit Report"
+                    autoFocus
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Deadline *</label>
+                  <input
+                    type="date"
+                    value={assignmentDeadline}
+                    onChange={(e) => setAssignmentDeadline(e.target.value)}
+                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Description</label>
+                  <textarea
+                    value={assignmentContent}
+                    onChange={(e) => setAssignmentContent(e.target.value)}
+                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none resize-none"
+                    rows="3"
+                    placeholder="Assignment details"
+                  />
+                </div>
+              </div>
+              <div className="flex gap-3 mt-6">
+                <button onClick={() => addAssignment(selectedCourse)} className="flex-1 bg-green-600 text-white py-3 rounded-xl font-semibold hover:bg-green-700">
+                  Add
+                </button>
+                <button onClick={() => {
+                  setSelectedCourse(null);
+                  setAssignmentName('');
+                  setAssignmentDeadline('');
+                  setAssignmentContent('');
+                }} className="px-6 py-3 border-2 border-gray-300 rounded-xl font-semibold hover:bg-gray-50">
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // To-Do List Page
+  const TodoListPage = () => {
+    useEffect(() => {
+      setTimeout(() => { if (window.lucide) window.lucide.createIcons(); }, 50);
+    }, [todos, showAddTodo]);
+
+    const [showAddTodo, setShowAddTodo] = useState(false);
+    const [todoContent, setTodoContent] = useState('');
+    const [todoDate, setTodoDate] = useState('');
+    const [todoCategory, setTodoCategory] = useState('');
+
+    const addTodo = () => {
+      if (!todoContent.trim()) {
+        alert('To-DoDescriptionを入力してください');
+        return;
+      }
+      const newTodo = {
+        id: `todo-${Date.now()}`,
+        content: todoContent,
+        date: todoDate,
+        category: todoCategory,
+        completed: false
+      };
+      setTodos([...todos, newTodo]);
+      setTodoContent('');
+      setTodoDate('');
+      setTodoCategory('');
+      setShowAddTodo(false);
+    };
+
+    const todosByDate = todos.reduce((acc, todo) => {
+      const date = todo.date || '付なし';
+      if (!acc[date]) acc[date] = [];
+      acc[date].push(todo);
+      return acc;
+    }, {});
+
+    const sortedDates = Object.keys(todosByDate).sort((a, b) => {
+      if (a === '付なし') return 1;
+      if (b === '付なし') return -1;
+      return a.localeCompare(b);
+    });
+
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <h2 className="text-3xl font-bold text-gray-800">To-Doリスト</h2>
+          <button
+            onClick={() => setShowAddTodo(true)}
+            className="flex items-center gap-2 px-5 py-3 bg-purple-600 text-white rounded-xl font-semibold hover:bg-purple-700"
+          >
+            <i data-lucide="plus" style={{ width: 20, height: 20 }}></i> To-DoをAdd
+          </button>
+        </div>
+
+        <div className="space-y-4">
+          {sortedDates.map(date => (
+            <div key={date} className="bg-white rounded-2xl shadow-lg border-2 border-gray-100 p-6">
+              <h3 className="text-lg font-bold text-gray-800 mb-4">{date}</h3>
+              <div className="space-y-2">
+                {todosByDate[date].map(todo => {
+                  const category = categories.find(c => c.id === todo.category);
+                  const tag = category ? tags.find(t => t.id === category.tagId) : null;
+                  
+                  return (
+                    <div key={todo.id} className={`flex items-start gap-3 p-3 rounded-xl ${todo.completed ? 'bg-gray-50 opacity-50' : 'bg-blue-50'}`}>
+                      <input
+                        type="checkbox"
+                        checked={todo.completed}
+                        onChange={() => toggleTodoComplete(todo.id)}
+                        className="mt-1 cursor-pointer"
+                      />
+                      <div className="flex-1">
+                        <div className={`${todo.completed ? 'line-through text-gray-500' : 'text-gray-800'}`}>
+                          {todo.content}
+                        </div>
+                        {category && (
+                          <div className="flex items-center gap-2 mt-1">
+                            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: tag?.color }} />
+                            <span className="text-xs text-gray-600">{category.name}</span>
+                          </div>
+                        )}
+                      </div>
+                      <button onClick={() => deleteTodo(todo.id)} className="text-red-600 hover:text-red-700">
+                        <i data-lucide="trash-2" style={{ width: 16, height: 16 }}></i>
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {showAddTodo && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl p-6 max-w-md w-full">
+              <h3 className="text-2xl font-bold text-gray-800 mb-6">To-DoをAdd</h3>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Description *</label>
+                  <input
+                    type="text"
+                    value={todoContent}
+                    onChange={(e) => setTodoContent(e.target.value)}
+                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none"
+                    placeholder="Task to do"
+                    autoFocus
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">付</label>
+                  <input
+                    type="date"
+                    value={todoDate}
+                    onChange={(e) => setTodoDate(e.target.value)}
+                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Categories</label>
+                  <select
+                    value={todoCategory}
+                    onChange={(e) => setTodoCategory(e.target.value)}
+                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none"
+                  >
+                    <option value="">Please select</option>
+                    {categories.map(cat => (
+                      <option key={cat.id} value={cat.id}>{cat.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="flex gap-3 mt-6">
+                <button onClick={addTodo} className="flex-1 bg-purple-600 text-white py-3 rounded-xl font-semibold hover:bg-purple-700">
+                  Add
+                </button>
+                <button onClick={() => setShowAddTodo(false)} className="px-6 py-3 border-2 border-gray-300 rounded-xl font-semibold hover:bg-gray-50">
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // Category Settings Page
+  const CategorySettingsPage = () => {
+    useEffect(() => {
+      setTimeout(() => { if (window.lucide) window.lucide.createIcons(); }, 50);
+    }, [categories, tags, showAddCategory, showAddTag]);
+
+    const [showAddCategory, setShowAddCategory] = useState(false);
+    const [showAddTag, setShowAddTag] = useState(false);
+    const [categoryName, setCategoryName] = useState('');
+    const [categoryTag, setCategoryTag] = useState('');
+    const [tagName, setTagName] = useState('');
+    const [tagColor, setTagColor] = useState('#3B82F6');
+
+    const handleAddCategory = () => {
+      if (!categoryName.trim() || !categoryTag) {
+        alert('Categories名とTagをPlease select');
+        return;
+      }
+      addCategory(categoryName, categoryTag);
+      setCategoryName('');
+      setCategoryTag('');
+      setShowAddCategory(false);
+    };
+
+    const handleAddTag = () => {
+      if (!tagName.trim()) {
+        alert('Tag名を入力してください');
+        return;
+      }
+      addTag(tagName, tagColor);
+      setTagName('');
+      setTagColor('#3B82F6');
+      setShowAddTag(false);
+    };
+
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <h2 className="text-3xl font-bold text-gray-800">CategoriesSettings</h2>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="bg-white rounded-2xl shadow-lg border-2 border-gray-100 p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-xl font-bold text-gray-800">Tag</h3>
+              <button
+                onClick={() => setShowAddTag(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-xl font-semibold hover:bg-orange-700 text-sm"
+              >
+                <i data-lucide="plus" style={{ width: 16, height: 16 }}></i> TagをAdd
+              </button>
+            </div>
+            <div className="space-y-2">
+              {tags.map(tag => (
+                <div key={tag.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
+                  <div className="flex items-center gap-3">
+                    <div className="w-6 h-6 rounded-full" style={{ backgroundColor: tag.color }} />
+                    <span className="font-semibold text-gray-800">{tag.name}</span>
+                  </div>
+                  <button onClick={() => deleteTag(tag.id)} className="text-red-600 hover:text-red-700">
+                    <i data-lucide="trash-2" style={{ width: 16, height: 16 }}></i>
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl shadow-lg border-2 border-gray-100 p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-xl font-bold text-gray-800">Categories</h3>
+              <button
+                onClick={() => setShowAddCategory(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 text-sm"
+              >
+                <i data-lucide="plus" style={{ width: 16, height: 16 }}></i> CategoriesをAdd
+              </button>
+            </div>
+            <div className="space-y-2">
+              {categories.map(category => {
+                const tag = tags.find(t => t.id === category.tagId);
+                return (
+                  <div key={category.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
+                    <div className="flex items-center gap-3">
+                      <div className="w-4 h-4 rounded-full" style={{ backgroundColor: tag?.color }} />
+                      <span className="font-semibold text-gray-800">{category.name}</span>
+                      <span className="text-xs text-gray-500">({tag?.name})</span>
+                    </div>
+                    <button onClick={() => deleteCategory(category.id)} className="text-red-600 hover:text-red-700">
+                      <i data-lucide="trash-2" style={{ width: 16, height: 16 }}></i>
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        {showAddTag && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl p-6 max-w-md w-full">
+              <h3 className="text-2xl font-bold text-gray-800 mb-6">TagをAdd</h3>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Tag名 *</label>
+                  <input
+                    type="text"
+                    value={tagName}
+                    onChange={(e) => setTagName(e.target.value)}
+                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none"
+                    placeholder="e.g., Work"
+                    autoFocus
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Color</label>
+                  <input
+                    type="color"
+                    value={tagColor}
+                    onChange={(e) => setTagColor(e.target.value)}
+                    className="w-full h-12 rounded-xl cursor-pointer"
+                  />
+                </div>
+              </div>
+              <div className="flex gap-3 mt-6">
+                <button onClick={handleAddTag} className="flex-1 bg-orange-600 text-white py-3 rounded-xl font-semibold hover:bg-orange-700">
+                  Add
+                </button>
+                <button onClick={() => setShowAddTag(false)} className="px-6 py-3 border-2 border-gray-300 rounded-xl font-semibold hover:bg-gray-50">
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showAddCategory && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl p-6 max-w-md w-full">
+              <h3 className="text-2xl font-bold text-gray-800 mb-6">CategoriesをAdd</h3>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Categories名 *</label>
+                  <input
+                    type="text"
+                    value={categoryName}
+                    onChange={(e) => setCategoryName(e.target.value)}
+                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none"
+                    placeholder="e.g., Project A"
+                    autoFocus
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Tag *</label>
+                  <select
+                    value={categoryTag}
+                    onChange={(e) => setCategoryTag(e.target.value)}
+                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none"
+                  >
+                    <option value="">Please select</option>
+                    {tags.map(tag => (
+                      <option key={tag.id} value={tag.id}>{tag.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="flex gap-3 mt-6">
+                <button onClick={handleAddCategory} className="flex-1 bg-blue-600 text-white py-3 rounded-xl font-semibold hover:bg-blue-700">
+                  Add
+                </button>
+                <button onClick={() => setShowAddCategory(false)} className="px-6 py-3 border-2 border-gray-300 rounded-xl font-semibold hover:bg-gray-50">
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // PL Page
+  const PLPage = () => {
+    useEffect(() => {
+      setTimeout(() => { if (window.lucide) window.lucide.createIcons(); }, 50);
+    }, [plItems, showAddPL]);
+
+    const [showAddPL, setShowAddPL] = useState(false);
+    const [plTitle, setPlTitle] = useState('');
+    const [plKeywords, setPlKeywords] = useState('');
+
+    const addPL = () => {
+      if (!plTitle.trim()) {
+        alert('Titleを入力してください');
+        return;
+      }
+      const newPL = {
+        id: `pl-${Date.now()}`,
+        title: plTitle,
+        keywords: plKeywords,
+        createdAt: new Date().toISOString()
+      };
+      setPlItems([...plItems, newPL]);
+      setPlTitle('');
+      setPlKeywords('');
+      setShowAddPL(false);
+    };
+
+    const deletePL = (id) => {
+      if (window.confirm('Delete?')) {
+        setPlItems(plItems.filter(p => p.id !== id));
+      }
+    };
+
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <h2 className="text-3xl font-bold text-gray-800">PL</h2>
+          <button
+            onClick={() => setShowAddPL(true)}
+            className="flex items-center gap-2 px-5 py-3 bg-indigo-600 text-white rounded-xl font-semibold hover:bg-indigo-700"
+          >
+            <i data-lucide="plus" style={{ width: 20, height: 20 }}></i> 項目をAdd
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {plItems.map(item => (
+            <div key={item.id} className="bg-white rounded-2xl shadow-lg border-2 border-gray-100 p-6">
+              <div className="flex justify-between items-start mb-3">
+                <h3 className="text-lg font-bold text-gray-800">{item.title}</h3>
+                <button onClick={() => deletePL(item.id)} className="text-red-600 hover:text-red-700">
+                  <i data-lucide="trash-2" style={{ width: 16, height: 16 }}></i>
+                </button>
+              </div>
+              {item.keywords && (
+                <div className="text-sm text-gray-600 mb-2">
+                  <span className="font-semibold">Keywords: </span>{item.keywords}
+                </div>
+              )}
+              <div className="text-xs text-gray-400">
+                {new Date(item.createdAt).toLocaleDateString('ja-JP')}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {showAddPL && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl p-6 max-w-md w-full">
+              <h3 className="text-2xl font-bold text-gray-800 mb-6">項目をAdd</h3>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Title *</label>
+                  <input
+                    type="text"
+                    value={plTitle}
+                    onChange={(e) => setPlTitle(e.target.value)}
+                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none"
+                    placeholder="Title"
+                    autoFocus
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Keywords</label>
+                  <input
+                    type="text"
+                    value={plKeywords}
+                    onChange={(e) => setPlKeywords(e.target.value)}
+                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none"
+                    placeholder="Keywords（カンマ区切り）"
+                  />
+                </div>
+              </div>
+              <div className="flex gap-3 mt-6">
+                <button onClick={addPL} className="flex-1 bg-indigo-600 text-white py-3 rounded-xl font-semibold hover:bg-indigo-700">
+                  Add
+                </button>
+                <button onClick={() => setShowAddPL(false)} className="px-6 py-3 border-2 border-gray-300 rounded-xl font-semibold hover:bg-gray-50">
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // Contacts Page
+  const ContactsPage = () => {
+    useEffect(() => {
+      setTimeout(() => { if (window.lucide) window.lucide.createIcons(); }, 50);
+    }, [contacts, showAddContact, searchQuery]);
+
+    const [showAddContact, setShowAddContact] = useState(false);
+    const [contactName, setContactName] = useState('');
+    const [contactPhone, setContactPhone] = useState('');
+    const [contactEmail, setContactEmail] = useState('');
+    const [contactNotes, setContactNotes] = useState('');
+
+    const addContact = () => {
+      if (!contactName.trim()) {
+        alert('Nameを入力してください');
+        return;
+      }
+      const newContact = {
+        id: `contact-${Date.now()}`,
+        name: contactName,
+        phone: contactPhone,
+        email: contactEmail,
+        notes: contactNotes
+      };
+      setContacts([...contacts, newContact]);
+      setContactName('');
+      setContactPhone('');
+      setContactEmail('');
+      setContactNotes('');
+      setShowAddContact(false);
+    };
+
+    const deleteContact = (id) => {
+      if (window.confirm('このContactsをDelete?')) {
+        setContacts(contacts.filter(c => c.id !== id));
+      }
+    };
+
+    const filteredContacts = contacts.filter(c =>
+      c.name.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <h2 className="text-3xl font-bold text-gray-800">Contacts</h2>
+          <button
+            onClick={() => setShowAddContact(true)}
+            className="flex items-center gap-2 px-5 py-3 bg-teal-600 text-white rounded-xl font-semibold hover:bg-teal-700"
+          >
+            <i data-lucide="plus" style={{ width: 20, height: 20 }}></i> ContactsをAdd
+          </button>
+        </div>
+
+        <div className="relative">
+          <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Contactsを検索..."
+            className="w-full pl-12 pr-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none"
+          />
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {filteredContacts.map(contact => (
+            <div key={contact.id} className="bg-white rounded-2xl shadow-lg border-2 border-gray-100 p-6">
+              <div className="flex justify-between items-start mb-4">
+                <h3 className="text-xl font-bold text-gray-800">{contact.name}</h3>
+                <button onClick={() => deleteContact(contact.id)} className="text-red-600 hover:text-red-700">
+                  <i data-lucide="trash-2" style={{ width: 18, height: 18 }}></i>
+                </button>
+              </div>
+              
+              <div className="space-y-2 text-sm">
+                {contact.phone && (
+                  <div className="flex items-center gap-2 text-gray-700">
+                    <i data-lucide="phone" className="text-gray-400" style={{ width: 16, height: 16 }}></i>
+                    {contact.phone}
+                  </div>
+                )}
+                {contact.email && (
+                  <div className="flex items-center gap-2 text-gray-700">
+                    <span className="text-gray-400">✉</span>
+                    {contact.email}
+                  </div>
+                )}
+                {contact.notes && (
+                  <div className="mt-3 p-2 bg-gray-50 rounded-lg text-gray-600 text-xs">
+                    {contact.notes}
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {showAddContact && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl p-6 max-w-md w-full">
+              <h3 className="text-2xl font-bold text-gray-800 mb-6">ContactsをAdd</h3>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Name *</label>
+                  <input
+                    type="text"
+                    value={contactName}
+                    onChange={(e) => setContactName(e.target.value)}
+                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none"
+                    placeholder="Name"
+                    autoFocus
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Phone</label>
+                  <input
+                    type="tel"
+                    value={contactPhone}
+                    onChange={(e) => setContactPhone(e.target.value)}
+                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none"
+                    placeholder="090-1234-5678"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Email</label>
+                  <input
+                    type="email"
+                    value={contactEmail}
+                    onChange={(e) => setContactEmail(e.target.value)}
+                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none"
+                    placeholder="example@email.com"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Notes</label>
+                  <textarea
+                    value={contactNotes}
+                    onChange={(e) => setContactNotes(e.target.value)}
+                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none resize-none"
+                    rows="3"
+                    placeholder="Relationship, notes, etc."
+                  />
+                </div>
+              </div>
+              <div className="flex gap-3 mt-6">
+                <button onClick={addContact} className="flex-1 bg-teal-600 text-white py-3 rounded-xl font-semibold hover:bg-teal-700">
+                  Add
+                </button>
+                <button onClick={() => setShowAddContact(false)} className="px-6 py-3 border-2 border-gray-300 rounded-xl font-semibold hover:bg-gray-50">
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const pages = [
+    { id: 'monthly', name: 'Monthly Calendar', icon: 'calendar', component: MonthlyCalendar },
+    { id: 'weekly', name: 'Weekly Calendar', icon: 'calendar', component: WeeklyCalendar },
+    { id: 'tutor', name: 'Online Tutoring', icon: 'users', component: OnlineTutorPage },
+    { id: 'classes', name: 'University Classes', icon: 'book-open', component: UniversityClassesPage },
+    { id: 'todos', name: 'To-Do', icon: 'check-square', component: TodoListPage },
+    { id: 'settings', name: 'Settings', icon: 'settings', component: CategorySettingsPage },
+    { id: 'pl', name: 'PL', icon: 'file-text', component: PLPage },
+    { id: 'contacts', name: 'Contacts', icon: 'phone', component: ContactsPage }
+  ];
+
+  const CurrentPageComponent = pages.find(p => p.id === currentPage)?.component || MonthlyCalendar;
+
+  useEffect(() => {
+    setTimeout(() => {
+      if (window.lucide) {
+        window.lucide.createIcons();
+      }
+    }, 100);
+  }, [currentPage, events, showEventForm, selectedStudent, selectedCourse]);
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50">
+      <header className="bg-white shadow-lg border-b-4 border-blue-500">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          <h1 className="text-4xl font-extrabold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+            Student Planner
+          </h1>
+        </div>
+      </header>
+
+      <nav className="bg-white shadow-md border-b-2 border-gray-100 sticky top-0 z-40">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex overflow-x-auto">
+            {pages.map(page => {
+              return (
+                <button
+                  key={page.id}
+                  onClick={() => setCurrentPage(page.id)}
+                  className={`flex items-center gap-2 px-5 py-4 border-b-4 whitespace-nowrap font-semibold ${currentPage === page.id ? 'border-blue-600 text-blue-600 bg-blue-50' : 'border-transparent text-gray-600 hover:text-blue-600 hover:bg-gray-50'}`}
+                >
+                  <i data-lucide={page.icon} style={{ width: 20, height: 20 }}></i>
+                  <span className="text-sm">{page.name}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </nav>
+
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <CurrentPageComponent />
+      </main>
+    </div>
+  );
+};
+
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<StudentPlanner />);
+  </script>
+</body>
+</html>
